@@ -4,28 +4,54 @@ namespace Bfs.TestTask.Driver;
 
 public class CardDriverMock : ICardDriverMock
 {
+    private CardData? _currentCardData;
+    private EjectResult _currentState;
+
     public async Task<CardData?> ReadCard(CancellationToken cancellationToken)
     {
-      throw new NotImplementedException();
+        if (!cancellationToken.IsCancellationRequested)
+        {
+            // Delay for imitation of read-process
+            await Task.Delay(1000);
+            return _currentCardData;
+        }
+
+        return null;
     }
 
-    public IAsyncEnumerable<EjectResult> EjectCard(CancellationToken cancellationToken)
+    public async IAsyncEnumerable<EjectResult> EjectCard([EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        _currentState = EjectResult.Ejected;
+        yield return _currentState;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            if (_currentState == EjectResult.CardTaken)
+            {
+                yield return EjectResult.CardTaken;
+            }
+        }
+
+        if (_currentState != EjectResult.CardTaken)
+        {
+            _currentState = EjectResult.Retracted;
+            yield return _currentState;
+        }
     }
 
     public void SetCardData(CardData cardData)
     {
-        throw new NotImplementedException();
+        _currentCardData = cardData;
     }
 
     public void CantReadCard()
     {
-        throw new NotImplementedException();
+        _currentCardData = null;
     }
 
     public void TakeCard()
     {
-        throw new NotImplementedException();
+        _currentState = EjectResult.CardTaken;
+        _currentCardData = null;
     }
 }
