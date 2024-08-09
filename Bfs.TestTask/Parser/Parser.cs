@@ -1,16 +1,62 @@
+using System.Text;
 using System.Threading.Channels;
 
 namespace Bfs.TestTask.Parser;
 
 public class Parser : IParser
 {
-    public IAsyncEnumerable<IMessage> Parse(ChannelReader<ReadOnlyMemory<byte>> source)
+    public async IAsyncEnumerable<IMessage> Parse(ChannelReader<ReadOnlyMemory<byte>> source)
     {
         //Перед каждым сообщением первые 2 байта определяют его длину
         //array[0] = (byte)(message.Length / 256);
         //array[1] = (byte)(message.Length % 256);
+        var buffer = new byte[0];
 
-        throw new NotImplementedException();
+        while (await source.WaitToReadAsync())
+        {
+            if (!source.TryRead(out var memoryBytes))
+            {
+                continue;
+            }
+
+            var bytes = memoryBytes.ToArray();
+            AddBytesToBuffer(ref buffer, bytes);
+            var length = GetMessageLength(buffer);
+
+            if (length + 2 > buffer.Length)
+            {
+                continue;
+            }
+
+            var message = ExtractMessageFromBuffer(ref buffer, length);
+            yield return ProcessMessage(message);
+        }
+    }
+
+    private int GetMessageLength(byte[] arr)
+    {
+        var l1 = (int)arr[0] * 256;
+        var l2 = (int)arr[1];
+        return l1 + l2;
+    }
+
+    private void AddBytesToBuffer(ref byte[] buffer, byte[] addBytes)
+    {
+        buffer = buffer.Take(buffer.Length).Concat(addBytes).ToArray();
+    }
+
+    private string ExtractMessageFromBuffer(ref byte[] bufferBytes, int messageLength)
+    {
+        var messageBytes = bufferBytes.Skip(2).Take(messageLength).ToArray();
+        bufferBytes = bufferBytes.Skip(messageLength + 2).Take(bufferBytes.Length - messageLength - 2).ToArray();
+        return Encoding.UTF8.GetString(messageBytes, 0, messageBytes.Length);
+    }
+
+    private IMessage ProcessMessage(string message)
+    {
+        //Process string message and return IMessage implementation
+
+        return null;
     }
 }
 
