@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Channels;
 
@@ -5,6 +7,9 @@ namespace Bfs.TestTask.Parser;
 
 public class Parser : IParser
 {
+    private string[] _messageSeparators = { "\u001c" };
+    private string[] _fitnessStateSeparators = { "\u001d" };
+
     public async IAsyncEnumerable<IMessage> Parse(ChannelReader<ReadOnlyMemory<byte>> source)
     {
         //Перед каждым сообщением первые 2 байта определяют его длину
@@ -42,21 +47,99 @@ public class Parser : IParser
 
     private void AddBytesToBuffer(ref byte[] buffer, byte[] addBytes)
     {
-        buffer = buffer.Take(buffer.Length).Concat(addBytes).ToArray();
+        buffer = buffer
+            .Take(buffer.Length)
+            .Concat(addBytes)
+            .ToArray();
     }
 
     private string ExtractMessageFromBuffer(ref byte[] bufferBytes, int messageLength)
     {
-        var messageBytes = bufferBytes.Skip(2).Take(messageLength).ToArray();
-        bufferBytes = bufferBytes.Skip(messageLength + 2).Take(bufferBytes.Length - messageLength - 2).ToArray();
-        return Encoding.UTF8.GetString(messageBytes, 0, messageBytes.Length);
+        var messageBytes = bufferBytes
+            .Skip(2)
+            .Take(messageLength)
+            .ToArray();
+
+        bufferBytes = bufferBytes
+            .Skip(messageLength + 2)
+            .Take(bufferBytes.Length - messageLength - 2)
+            .ToArray();
+
+        return Encoding.ASCII.GetString(messageBytes, 0, messageBytes.Length);
     }
 
     private IMessage ProcessMessage(string message)
     {
-        //Process string message and return IMessage implementation
+        var separatedMessage = message.Split(_messageSeparators, StringSplitOptions.RemoveEmptyEntries);
+        var messageClassSubClass = separatedMessage[0];
+        string LUNO = separatedMessage[1];
+
+        if (messageClassSubClass == "12")
+        {
+            char DIG = separatedMessage[2][0];
+            if (int.TryParse(separatedMessage[2][1].ToString(), out int deviceStatus) &&
+                int.TryParse(separatedMessage[2][2].ToString(), out int errorSeverity) &&
+                int.TryParse(separatedMessage[2][3].ToString(), out int diagnosticStatus) &&
+                int.TryParse(separatedMessage[2][4].ToString(), out int suppliesStatus))
+            {
+                return new CardReaderState(
+                    LUNO, 
+                    DIG, 
+                    deviceStatus, 
+                    errorSeverity, 
+                    diagnosticStatus, 
+                    suppliesStatus);
+            }
+        }
+        else if (messageClassSubClass == "22")
+        {
+            char statusDescriptor = separatedMessage[2][0];
+            if (statusDescriptor == 'B')
+            {
+                if (int.TryParse(separatedMessage[3].ToString(), out int transactionNumber))
+                {
+                    return new SendStatus(
+                        LUNO, 
+                        statusDescriptor, 
+                        transactionNumber);
+                }
+            }
+            else if (statusDescriptor == 'F')
+            {
+                char messageIdentifier = separatedMessage[3][0];
+                char hardwareFitnessIdentifier = separatedMessage[3][1];
+
+                var fitnessStateMessages = separatedMessage[3].Substring(2);
+                var fitnessState = ParseFitnessState(fitnessStateMessages);
+
+                return new GetFitnessData(
+                    LUNO, 
+                    statusDescriptor, 
+                    messageIdentifier, 
+                    hardwareFitnessIdentifier, 
+                    fitnessState);
+            }
+        }
 
         return null;
+    }
+
+    private FitnessState[] ParseFitnessState(string message)
+    {
+        var separatedStates = message.Split(_fitnessStateSeparators, StringSplitOptions.RemoveEmptyEntries);
+        
+        var result = new FitnessState[separatedStates.Length];
+        for (int i = 0; i < separatedStates.Length; i++)
+        {
+            var state = separatedStates[i];
+            char DIG = state[0];
+            string fitness = state.Substring(1);
+
+            var fitnessState = new FitnessState(DIG, fitness);
+            result[i] = fitnessState;
+        }
+
+        return result;
     }
 }
 
